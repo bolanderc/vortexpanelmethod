@@ -1,9 +1,15 @@
-def FindGeometry(num_nodes,NACAnum):
-"""
-Find Geometry takes the number of nodes as well as the NACA number and
-finds the x and y coordinates of the nodes for a given airfoil. It also finds
-the locations of the control points on the airfoil.
-"""
+"""Implements 2D geometries for use in panel methods."""
+
+import numpy as np
+
+
+def naca4digit(NACAnum, num_nodes=240):
+    """
+    Generates points for NACA 4-digit series airfoils.
+
+    Takes the number of nodes as well as the NACA number and
+    finds the x and y coordinates of the nodes for a given airfoil.
+    """
     #Initialization of parameters
     num_panels = num_nodes - 1
     ycamt = 0.0
@@ -17,9 +23,9 @@ the locations of the control points on the airfoil.
     ytu = 0.0
     ytl = 0.0
     #Translates NACA number into corresponding info for thickness and camber
-    m = NACAnum[0]/100
-    p = NACAnum[1]/10
-    th = NACAnum[2]/100
+    m = float(NACAnum[0])/100
+    p = float(NACAnum[1])/10
+    th = float(NACAnum[2:4])/100
     #Cosine clustering of airfoil 
     dtheta = (np.pi*2)/(num_nodes - 1)
     #Coefficients from Wikipedia page on NACA airfoils to find the thickness
@@ -64,10 +70,10 @@ the locations of the control points on the airfoil.
         xc[i] = (x[i] + x[i+1])/2
         yc[i] = (y[i] + y[i+1])/2
     #Graphs the shape of the airfoil and returns x,y,xc,and yc.
-    plt.figure(0)
-    plt.title('Airfoil Shape')
-    plt.plot(x,y)
-    plt.xlabel('Chord')
-    plt.ylabel('Thickness')
-    plt.ylim(-0.3,0.3)
-    return x,y,xc,yc
+    # plt.figure(0)
+    # plt.title('Airfoil Shape')
+    # plt.plot(x,y)
+    # plt.xlabel('Chord')
+    # plt.ylabel('Thickness')
+    # plt.ylim(-0.3,0.3)
+    return np.array([x, y]).T
