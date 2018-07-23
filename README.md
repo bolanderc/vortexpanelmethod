@@ -20,6 +20,9 @@ import vortexpanelmethod
 
 ## Notes
 
+## References
+W. F. Phillips, "Section Title," Mechanics of
+Flight, 2nd ed., Wiley, New Jersey, 2010, pp. ?? -??.
 
 ## Documentation
 
