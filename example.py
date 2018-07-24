@@ -1,12 +1,12 @@
 from panelmethods import geometry_2D
-from panelmethods import VortexPanelMethod
+from panelmethods import vortexpanelmethod
 
 mygeometry = geometry_2D.naca4digit("2412")
-naca2412 = VortexPanelMethod(mygeometry)
-results = naca2412.solve(aoa=1., v_mag=40.)
+naca2412 = vortexpanelmethod.VortexPanelMethod(mygeometry)
+cl, cm = naca2412.solve(aoa=0., v_mag=1.)
 
-print("Lift Coeffecient: ", results["CL"])
-print("Moment Coeffecient: ", results["Cm"])
+print("Lift Coeffecient: ", cl)
+print("Moment Coeffecient: ", cm)
 
 
 # arbitrary geometries
