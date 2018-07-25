@@ -95,8 +95,8 @@ class VortexPanelMethod:
         y_c = (y[:-1] + y[1:])/2.
         # Eq. 1.6.19 in text calculates the length of each panel
         self._pan_len = np.sqrt((x[1:]-x[:-1])**2 + (y[1:]-y[:-1])**2)
-        a = np.zeros((2, 2))
-        b = np.zeros((2, 2))
+        panel_mat_a = np.zeros((2, 2))
+        panel_mat_b = np.zeros((2, 2))
         panel_tangent = 0.0
         panel_normal = 0.0
         panel_lengths = np.zeros((2, 2))
@@ -114,7 +114,7 @@ class VortexPanelMethod:
                 panel_lengths[1, 1] = (x[j+1] - x[j])
                 panel_cp_dist[0, 0] = (x_c[i] - x[j])
                 panel_cp_dist[1, 0] = (y_c[i] - y[j])
-                # Eq. 1.6.20 returns the panel coordinates in the panel system.
+                # Eq. 1.6.20 returns the panel coordinate system.
                 panel_coords = (np.dot(panel_lengths,
                                        panel_cp_dist)/self._pan_len[j])
                 panel_tangent = panel_coords[0]
@@ -128,35 +128,36 @@ class VortexPanelMethod:
                                    panel_normal**2)))
                 # Eq. 1.6.23 calculates panel coefficient matrix, used later to
                 # find the airfoil coefficient matrix.
-                a[0][0] = (x[j+1] - x[j])
-                a[0][1] = -(y[j+1] - y[j])
-                a[1][0] = (y[j+1] - y[j])
-                a[1][1] = (x[j+1] - x[j])
-                b[0][0] = ((self._pan_len[j] - panel_tangent)*phi +
-                           panel_normal*psi)
-                b[0][1] = (panel_tangent*phi - panel_normal*psi)
-                b[1][0] = (panel_normal*phi -
-                           (self._pan_len[j] - panel_tangent)*psi -
-                           self._pan_len[j])
-                b[1][1] = (-panel_normal*phi - panel_tangent*psi +
-                           self._pan_len[j])
-                panel_mat = np.dot(a, b)/(2*np.pi*(self._pan_len[j]**2))
+                panel_mat_a[0, 0] = (x[j+1] - x[j])
+                panel_mat_a[0, 1] = -(y[j+1] - y[j])
+                panel_mat_a[1, 0] = (y[j+1] - y[j])
+                panel_mat_a[1, 1] = (x[j+1] - x[j])
+                panel_mat_b[0, 0] = ((self._pan_len[j] - panel_tangent)*phi +
+                                     panel_normal*psi)
+                panel_mat_b[0, 1] = (panel_tangent*phi - panel_normal*psi)
+                panel_mat_b[1, 0] = (panel_normal*phi -
+                                     (self._pan_len[j] - panel_tangent)*psi -
+                                     self._pan_len[j])
+                panel_mat_b[1, 1] = (-panel_normal*phi - panel_tangent*psi +
+                                     self._pan_len[j])
+                panel_mat = (np.dot(panel_mat_a, panel_mat_b) /
+                             (2*np.pi*(self._pan_len[j]**2)))
                 # Uses above data to calculate the airfoil coefficient matrix.
                 # Physically represents the velocity induced at control
                 # point i by panel j.
-                airfoil_mat[i][j] = (airfoil_mat[i][j] +
+                airfoil_mat[i, j] = (airfoil_mat[i, j] +
                                      (((x[i+1] - x[i])/self._pan_len[i]) *
-                                      (panel_mat[1][0])) -
+                                      (panel_mat[1, 0])) -
                                      (((y[i+1] - y[i]) / self._pan_len[i]) *
-                                      (panel_mat[0][0])))
-                airfoil_mat[i][j+1] = (airfoil_mat[i][j+1] +
+                                      (panel_mat[0, 0])))
+                airfoil_mat[i, j+1] = (airfoil_mat[i, j+1] +
                                        (((x[i+1] - x[i])/self._pan_len[i]) *
-                                        (panel_mat[1][1])) -
+                                        (panel_mat[1, 1])) -
                                        (((y[i+1] - y[i])/self._pan_len[i]) *
-                                        (panel_mat[0][1])))
+                                        (panel_mat[0, 1])))
         # Enforces the Kutta condition
-        airfoil_mat[n-1][0] = 1.0
-        airfoil_mat[n-1][n-1] = 1.0
+        airfoil_mat[n-1, 0] = 1.0
+        airfoil_mat[n-1, n-1] = 1.0
         return airfoil_mat
 
 
@@ -200,16 +201,16 @@ class VortexPanelMethod:
         pan_len = self._pan_len
         x, y = self._geometry.T
         n = self._num_nodes
-        Cl = 0.0
-        Cm_le = 0.0
+        c_l = 0.0
+        c_m_le = 0.0
         # Eq. 1.6.32 to find C_l and 1.6.33 to find C_mle
         for i in range(n-1):
-            Cl += (pan_len[i]*((gamma[i] + gamma[i+1])/v_mag))
-            Cm1 = ((2*x[i]*gamma[i] + x[i]*gamma[i+1] + x[i+1]*gamma[i] +
+            c_l += (pan_len[i]*((gamma[i] + gamma[i+1])/v_mag))
+            cm1 = ((2*x[i]*gamma[i] + x[i]*gamma[i+1] + x[i+1]*gamma[i] +
                     2*x[i+1]*gamma[i+1])/v_mag)
-            Cm2 = ((2*y[i]*gamma[i] + y[i]*gamma[i+1] + y[i+1]*gamma[i] +
+            cm2 = ((2*y[i]*gamma[i] + y[i]*gamma[i+1] + y[i+1]*gamma[i] +
                     2*y[i+1]*gamma[i+1])/v_mag)
-            Cm_le += (pan_len[i]*(Cm1*np.cos(aoa*(np.pi/180)) +
-                      Cm2*np.sin(aoa*(np.pi/180))))
-        Cm_le = Cm_le*(-1.0/3.0)
-        return Cl, Cm_le
+            c_m_le += (pan_len[i]*(cm1*np.cos(aoa*(np.pi/180)) +
+                       cm2*np.sin(aoa*(np.pi/180))))
+        c_m_le = c_m_le*(-1.0/3.0)
+        return np.sum(c_l), c_m_le
