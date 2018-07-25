@@ -1,257 +1,215 @@
-"""
-Christian Bolander
-MAE 5500 Aerodynamics Project 3
-Vortex Sheet Method
+# -*- coding: utf-8 -*-
+"""A 2D vortex panel method implementation for inviscid flow.
+
+This module implements a 2D vortex panel method for inviscid flow. As the code
+is contained in a class structure, it is easy to sweep through velocities and
+angles of attack with a single instance of the class, as the A matrix will be
+saved the first time that it is run. The lift and moment coefficients are
+returned for a given geometry as outputs.
+
+Routine Listings
+-----------------
+VortexPanelMethod : Class for storing the elements required for the vortex
+                    panel method as well as solving for the vortex
+                    strengths and aerodynamic coefficients.
+
+Notes
+-------
+The moment coefficient calculated here is the moment coefficient about the
+leading edge.
+
+References
+-----------
+Phillips, Warren F. Mechanics of flight. John Wiley & Sons, 2004.
+
+Example
+--------
+from panelmethods import geometry_2D
+from panelmethods import vortexpanelmethod
+
+mygeometry = geometry_2D.naca4digit("2412")
+naca2412 = vortexpanelmethod.VortexPanelMethod(mygeometry)
+cl, cm = naca2412.solve(aoa=0., v_mag=1.)
+
+print("Lift Coeffecient: ", cl)
+print("Moment Coeffecient: ", cm)
+
 """
 import numpy as np
-import matplotlib.pyplot as plt
 
 
 class VortexPanelMethod:
-    """
+    """VortexPanelMethod is able to use a series of `x` and `y` data points to
+    calculate aerodynamic coefficients.
+
+    This class houses the functions that allow the vortex panel method to be
+    applied to a given geometry to find the lift and moment coefficients. This
+    class is meant to be a tool that can be easily combined with other programs
+    in this module to perform calculations on inviscid flow over objects.
+
+    The __init__ constructor will run each time an instance of the class is
+    created. It inherits from the geometry created by `geometry_2D.py` and will
+    solve for the matrix in the vortex panel method that is on the same side as
+    the nodal strengths. This value will be stored and accessible in that
+    of the class to increase the efficiency of the algorithm when sweeping
+    through angles of attack or velocities.
+
+    Attributes
+    ------------
+    geometry : array_like
+        Contains an array of `x` and `y` coordinate values.
+    _num_nodes : int
+        The number of nodes over the geometry.
+    _A : array
+        The airfoil coefficient matrix used to solve for the nodal strengths
+        of the geometry.
+    _b : array
+        Velocity terms used to solve for the nodal strengths of the geometry.
+    _results : tuple
+        Contains the section lift coefficient and moment coefficient about the
+        leading edge.
+
+    See Also
+    -----------
+    numpy.dot : Used for matrix multiplication or dot products
+
+    numpy.arctan2 : Calculates the four-quadrant arctangent
+
+    numpy.linalg.solve : Solves a matrix equation of the form `Ax=b` for `x`
+
+    geometry_2D.py : Returns `x` and `y` data points for a given NACA airfoil
 
     """
     def __init__(self, geometry):
         self._geometry = geometry
-        self._n = len(geometry)
+        self._num_nodes = len(geometry)
 #        self._P = self._calc_panel_coeff()
         self._A = self._calc_airfoil_coeff()
         self._b = None
         self._results = None
 
     def _calc_airfoil_coeff(self):
-        n = self._n
+        n = self._num_nodes
         x, y = self._geometry.T
         x_c = (x[:-1] + x[1:])/2.
         y_c = (y[:-1] + y[1:])/2.
-        #Eq. 1.6.19 in text calculates the length of each panel
-        self._l = np.sqrt((x[1:]-x[:-1])**2 + (y[1:]-y[:-1])**2)
-        a = np.zeros((2,2))
-        b = np.zeros((2,2))
-        zeta = 0.0
-        eta = 0.0
-        za = np.zeros((2,2))
-        zb = np.zeros((2,1))
-        P = np.zeros((2,2))
-        A = np.zeros((n,n))
-        #Constructs an A and B matrix to calculate the strength of each of the 
-        #vorticies at each node.
+        # Eq. 1.6.19 in text calculates the length of each panel
+        self._pan_len = np.sqrt((x[1:]-x[:-1])**2 + (y[1:]-y[:-1])**2)
+        a = np.zeros((2, 2))
+        b = np.zeros((2, 2))
+        panel_tangent = 0.0
+        panel_normal = 0.0
+        panel_lengths = np.zeros((2, 2))
+        panel_cp_dist = np.zeros((2, 1))
+        panel_mat = np.zeros((2, 2))
+        airfoil_mat = np.zeros((n, n))
         for i in range(n-1):
             for j in range(n-1):
-                #za and ab are used as the 2x2 matrix (za) and the 2x1 matrix(zb) 
-                #in equation 1.6.20 in Phillips' text.
-                za[0][0] = (x[j+1]-x[j])
-                za[0][1] = (y[j+1]-y[j])
-                za[1][0] = -(y[j+1] - y[j])
-                za[1][1] = (x[j+1] - x[j])
-                zb[0][0] = (x_c[i] - x[j])
-                zb[1][0] = (y_c[i] - y[j])
-                #Eq. 1.6.20, returns zeta and eta values used later.
-                intermediate = (np.dot(za,zb)/self._l[j])
-                zeta = intermediate[0]
-                eta = intermediate[1]
-                #Eq. 1.6.21 returns Phi and Eq. 1.6.22 returns Psi, used later to
-                #find P matrix.
-                Phi = np.arctan2(eta*self._l[j],(eta**2 + zeta**2 - zeta*self._l[j]))
-                Psi = 0.5*np.log((zeta**2 + eta**2)/((zeta-self._l[j])**2 + eta**2))
-                #Eq. 1.6.23 calculates P matrix, used later to find A matrix. Called
-                #panel coefficient matrix.
+                # panel_lengths and panel_cp_dist are used as the 2x2 matrix
+                # (panel_lengths) and the 2x1 matrix(panel_cp_dist) in equation
+                # 1.6.20 in Phillips' text.
+                panel_lengths[0, 0] = (x[j+1] - x[j])
+                panel_lengths[0, 1] = (y[j+1] - y[j])
+                panel_lengths[1, 0] = -(y[j+1] - y[j])
+                panel_lengths[1, 1] = (x[j+1] - x[j])
+                panel_cp_dist[0, 0] = (x_c[i] - x[j])
+                panel_cp_dist[1, 0] = (y_c[i] - y[j])
+                # Eq. 1.6.20 returns the panel coordinates in the panel system.
+                panel_coords = (np.dot(panel_lengths,
+                                       panel_cp_dist)/self._pan_len[j])
+                panel_tangent = panel_coords[0]
+                panel_normal = panel_coords[1]
+                # Eq. 1.6.21 returns phi and Eq. 1.6.22 returns psi.
+                phi = np.arctan2(panel_normal*self._pan_len[j],
+                                 (panel_normal**2 + panel_tangent**2 -
+                                  panel_tangent*self._pan_len[j]))
+                psi = (0.5*np.log((panel_tangent**2 + panel_normal**2) /
+                                  ((panel_tangent-self._pan_len[j])**2 +
+                                   panel_normal**2)))
+                # Eq. 1.6.23 calculates panel coefficient matrix, used later to
+                # find the airfoil coefficient matrix.
                 a[0][0] = (x[j+1] - x[j])
                 a[0][1] = -(y[j+1] - y[j])
                 a[1][0] = (y[j+1] - y[j])
                 a[1][1] = (x[j+1] - x[j])
-                b[0][0] = ((self._l[j] - zeta)*Phi + eta*Psi)
-                b[0][1] = (zeta*Phi - eta*Psi)
-                b[1][0] = (eta*Phi - (self._l[j] - zeta)*Psi - self._l[j])
-                b[1][1] = (-eta*Phi - zeta*Psi + self._l[j])
-                P = np.dot(a,b)/(2*np.pi*(self._l[j]**2))
-                #Uses above data to calculate the A matrix (airfoil coefficient
-                #matrix). Physically represents the velocity induced at control
-                #point i by panel j.
-                A[i][j] = (A[i][j] + (((x[i+1] - x[i])/self._l[i])*(P[1][0])) - (((y[i+1]
-                - y[i])/self._l[i])*(P[0][0])))
-                A[i][j+1] = (A[i][j+1] + (((x[i+1] - x[i])/self._l[i])*(P[1][1])) - 
-                 (((y[i+1] - y[i])/self._l[i])*(P[0][1])))
-        A[n-1][0] = 1.0
-        A[n-1][n-1] = 1.0
-        return A
+                b[0][0] = ((self._pan_len[j] - panel_tangent)*phi +
+                           panel_normal*psi)
+                b[0][1] = (panel_tangent*phi - panel_normal*psi)
+                b[1][0] = (panel_normal*phi -
+                           (self._pan_len[j] - panel_tangent)*psi -
+                           self._pan_len[j])
+                b[1][1] = (-panel_normal*phi - panel_tangent*psi +
+                           self._pan_len[j])
+                panel_mat = np.dot(a, b)/(2*np.pi*(self._pan_len[j]**2))
+                # Uses above data to calculate the airfoil coefficient matrix.
+                # Physically represents the velocity induced at control
+                # point i by panel j.
+                airfoil_mat[i][j] = (airfoil_mat[i][j] +
+                                     (((x[i+1] - x[i])/self._pan_len[i]) *
+                                      (panel_mat[1][0])) -
+                                     (((y[i+1] - y[i]) / self._pan_len[i]) *
+                                      (panel_mat[0][0])))
+                airfoil_mat[i][j+1] = (airfoil_mat[i][j+1] +
+                                       (((x[i+1] - x[i])/self._pan_len[i]) *
+                                        (panel_mat[1][1])) -
+                                       (((y[i+1] - y[i])/self._pan_len[i]) *
+                                        (panel_mat[0][1])))
+        # Enforces the Kutta condition
+        airfoil_mat[n-1][0] = 1.0
+        airfoil_mat[n-1][n-1] = 1.0
+        return airfoil_mat
 
 
 #    def _calc_panel_coeff(self):
 #        pass
 
     def solve(self, aoa, v_mag):
-        self._b = self._calc_rhs(aoa, v_mag)
+        """Solves for the nodal vortex strengths (gamma) of the geometry.
+
+        Utilizes a linear algebra solver to obtain values for the lift and
+        moment coefficients given the airfoil coefficient matrix and the
+        velocity terms in vector form.
+
+        Returns
+        -------
+        _results : tuple
+            Contains the resulting section lift and moment coefficients
+
+        """
+        self._b = self._calc_freestream_terms(aoa, v_mag)
         self._gamma = np.linalg.solve(self._A, self._b)
         self._results = self._calc_forces_moments(aoa, v_mag)
 
         return self._results
 
-    def _calc_rhs(self, aoa, v_mag):
+    def _calc_freestream_terms(self, aoa, v_mag):
         x, y = self._geometry.T
-        n = self._n
-        B = np.zeros((n,1))
-        #Generates the B matrix, which represents free stream velocity
-        #considerations.
+        n = self._num_nodes
+        freestream_terms = np.zeros((n, 1))
+        # Generates the vector with the freestream terms.
         for i in range(n-1):
-            B[i] = ((((y[i+1] - y[i])*np.cos(aoa*(np.pi/180))) - 
-             ((x[i+1] - x[i])*np.sin(aoa*(np.pi/180))))/self._l[i])
-        #Kutta Condition
-        B[n-1] = 0.0
-        return B
-    
+            freestream_terms[i] = ((((y[i+1] - y[i])*np.cos(aoa*(np.pi/180))) -
+                                   ((x[i+1] - x[i])*np.sin(aoa*(np.pi/180)))) /
+                                   self._pan_len[i])
+        # Kutta Condition
+        freestream_terms[n-1] = 0.0
+        return freestream_terms
+
     def _calc_forces_moments(self, aoa, v_mag):
         gamma = self._gamma
-        l = self._l
+        pan_len = self._pan_len
         x, y = self._geometry.T
-        n = self._n
+        n = self._num_nodes
         Cl = 0.0
-        Cmle = 0.0
-        #Eq. 1.6.32 to find C_l and 1.6.33 to find C_mle
+        Cm_le = 0.0
+        # Eq. 1.6.32 to find C_l and 1.6.33 to find C_mle
         for i in range(n-1):
-            Cl += (l[i]*((gamma[i] + gamma[i+1])/v_mag))
-            Cm1 = ((2*x[i]*gamma[i] + x[i]*gamma[i+1] + x[i+1]*gamma[i] + 
+            Cl += (pan_len[i]*((gamma[i] + gamma[i+1])/v_mag))
+            Cm1 = ((2*x[i]*gamma[i] + x[i]*gamma[i+1] + x[i+1]*gamma[i] +
                     2*x[i+1]*gamma[i+1])/v_mag)
-            Cm2 = ((2*y[i]*gamma[i] + y[i]*gamma[i+1] + y[i+1]*gamma[i] + 
+            Cm2 = ((2*y[i]*gamma[i] + y[i]*gamma[i+1] + y[i+1]*gamma[i] +
                     2*y[i+1]*gamma[i+1])/v_mag)
-            Cmle += (l[i]*(Cm1*np.cos(aoa*(np.pi/180)) + 
-                     Cm2*np.sin(aoa*(np.pi/180))))
-        Cmle = Cmle*(-1.0/3.0)
-        return Cl, Cmle
-
-"""
-Does the necessary calculations for the Vortex Method. Takes the number of nodes,
-the NACA airfoil number, freestream velocity, and angle of attack. Returns Lift
-Coefficient and Moment Coefficient on the leading edge. Equations 1.6.19 - 
-1.6.33 are used, excluding 1.6.19 - 1.6.31.
-"""
-#def VortexMethod(num_nodes,NACAnum,V_inf,alpha):
-#    #Initialization of parameters
-#    n = num_nodes
-#    x,y,xc,yc = FindGeometry(n,NACAnum)
-#    a = np.zeros((2,2))
-#    b = np.zeros((2,2))
-#    l = np.zeros(n-1)
-#    zeta = 0.0
-#    eta = 0.0
-#    Cl = 0.0
-#    Cmle = 0.0
-#    za = np.zeros((2,2))
-#    zb = np.zeros((2,1))
-#    P = np.zeros((2,2))
-#    A = np.zeros((n,n))
-#    B = np.zeros((n,1))
-#    gamma = np.zeros(n)
-#    #Constructs an A and B matrix to calculate the strength of each of the 
-#    #vorticies at each node.
-#    for i in range(n-1):
-#        for j in range(n-1):
-#            #za and ab are used as the 2x2 matrix (za) and the 2x1 matrix(zb) 
-#            #in equation 1.6.20 in Phillips' text.
-#            za[0][0] = (x[j+1]-x[j])
-#            za[0][1] = (y[j+1]-y[j])
-#            za[1][0] = -(y[j+1] - y[j])
-#            za[1][1] = (x[j+1] - x[j])
-#            zb[0][0] = (xc[i] - x[j])
-#            zb[1][0] = (yc[i] - y[j])
-#            #Eq. 1.6.19 in text calculates the length of each panel
-#            l[j] = np.sqrt((x[j+1]-x[j])**2 + (y[j+1]-y[j])**2)
-#            #Eq. 1.6.20, returns zeta and eta values used later.
-#            intermediate = (np.dot(za,zb)/l[j])
-#            zeta = intermediate[0]
-#            eta = intermediate[1]
-#            #Eq. 1.6.21 returns Phi and Eq. 1.6.22 returns Psi, used later to
-#            #find P matrix.
-#            Phi = np.arctan2(eta*l[j],(eta**2 + zeta**2 - zeta*l[j]))
-#            Psi = 0.5*np.log((zeta**2 + eta**2)/((zeta-l[j])**2 + eta**2))
-#            #Eq. 1.6.23 calculates P matrix, used later to find A matrix. Called
-#            #panel coefficient matrix.
-#            a[0][0] = (x[j+1] - x[j])
-#            a[0][1] = -(y[j+1] - y[j])
-#            a[1][0] = (y[j+1] - y[j])
-#            a[1][1] = (x[j+1] - x[j])
-#            b[0][0] = ((l[j] - zeta)*Phi + eta*Psi)
-#            b[0][1] = (zeta*Phi - eta*Psi)
-#            b[1][0] = (eta*Phi - (l[j] - zeta)*Psi - l[j])
-#            b[1][1] = (-eta*Phi - zeta*Psi + l[j])
-#            P = np.dot(a,b)/(2*np.pi*(l[j]**2))
-#            #Uses above data to calculate the A matrix (airfoil coefficient
-#            #matrix). Physically represents the velocity induced at control
-#            #point i by panel j.
-#            A[i][j] = (A[i][j] + (((x[i+1] - x[i])/l[i])*(P[1][0])) - (((y[i+1]
-#            - y[i])/l[i])*(P[0][0])))
-#            A[i][j+1] = (A[i][j+1] + (((x[i+1] - x[i])/l[i])*(P[1][1])) - 
-#             (((y[i+1] - y[i])/l[i])*(P[0][1])))
-#    A[n-1][0] = 1.0
-#    A[n-1][n-1] = 1.0
-#    #Generates the B matrix, which represents free stream velocity
-#    #considerations.
-#    for i in range(n-1):
-#        B[i] = ((((y[i+1] - y[i])*np.cos(alpha*(np.pi/180))) - 
-#         ((x[i+1] - x[i])*np.sin(alpha*(np.pi/180))))/l[i])
-#    #Kutta Condition
-#    B[n-1] = 0.0
-#    #Nodal vortex strengths
-#    gamma = np.linalg.solve(A,B)
-#    #Eq. 1.6.32 to find C_l and 1.6.33 to find C_mle
-#    for i in range(n-1):
-#        Cl += (l[i]*((gamma[i] + gamma[i+1])/V_inf))
-#        Cm1 = ((2*x[i]*gamma[i] + x[i]*gamma[i+1] + x[i+1]*gamma[i] + 
-#                2*x[i+1]*gamma[i+1])/V_inf)
-#        Cm2 = ((2*y[i]*gamma[i] + y[i]*gamma[i+1] + y[i+1]*gamma[i] + 
-#                2*y[i+1]*gamma[i+1])/V_inf)
-#        Cmle += (l[i]*(Cm1*np.cos(alpha*(np.pi/180)) + 
-#                 Cm2*np.sin(alpha*(np.pi/180))))
-#    Cmle = Cmle*(-1.0/3.0)
-#    return Cl,Cmle
-#"""
-#Specific to Aerodynamics project. Tabulates and plots the coefficients 
-#calculated above as a function of angle of attack and compares values returned
-#by Vortex Panel Method to values obtained experimentally recorded in Figure 
-#4.37 in Anderson's Aerodynamics text. 
-#"""
-#def Plot_and_Tab(num_nodes,NACAnum,V_inf):
-#    i = 0
-#    #Alpha range given in project
-#    alpha_range = np.arange(-8,16,4)
-#    #Experimental values from Figure 4.37
-#    Clexp = [-0.6,-0.2,0.23,0.65,1.09,1.42]
-#    Cmlexp = [0.104,0.008,-0.0965,-0.1975,-0.3055,-0.383]
-#    Cl = np.zeros(len(alpha_range))
-#    Cmle = np.zeros(len(alpha_range))
-#    #Vortex Panel Method values for comparison
-#    for a in alpha_range:    
-#        Cl[i], Cmle[i] = VortexMethod(num_nodes,NACAnum,V_inf,a)
-#        i+=1
-#    #Plots and Tables
-#    plt.figure(1)
-#    plt.title('Lift Coefficient Comparison')
-#    plt.scatter(alpha_range,Clexp, label = 'Experimental')
-#    plt.scatter(alpha_range,Cl, label = 'Vortex Method Approximation')
-#    plt.legend(loc = 'upper left')
-#    plt.xlabel('Angle of Attack (degrees)')
-#    plt.ylabel('Coefficient of Lift (C_l)')
-#    table = [[0 for x in range(len(alpha_range))]for y in range(len(alpha_range))] 
-#    for i in range(len(alpha_range)):
-#        table[i] = (alpha_range[i],Cl[i],Clexp[i])
-#    headers = ["Alpha","C_L Vortex Panel","C_L Experimental"]
-#    t = tb.tabulate(table,headers,floatfmt=".6f")
-#    print(t)           
-#    plt.figure(2)
-#    plt.title('Moment Coefficient Comparison')
-#    plt.scatter(alpha_range,Cmlexp, label = 'Experimental')
-#    plt.scatter(alpha_range,Cmle, label = 'Vortex Method Approximation')
-#    plt.legend(loc = 'upper right')
-#    plt.xlabel('Angle of Attack (degrees)')
-#    plt.ylabel('Moment Coefficient (About Leading Edge)')
-#    table = [[0 for x in range(len(alpha_range))]for y in range(len(alpha_range))] 
-#    for i in range(len(alpha_range)):
-#        table[i] = (alpha_range[i],Cmle[i],Cmlexp[i])
-#    headers = ["Alpha","C_mLE Vortex Panel","C_mLE Experimental"]
-#    t = tb.tabulate(table,headers,floatfmt=".6f")
-#    print(t)       
-#Plot_and_Tab(30,[0,0,12],1)           
-            
-            
-            
-            
+            Cm_le += (pan_len[i]*(Cm1*np.cos(aoa*(np.pi/180)) +
+                      Cm2*np.sin(aoa*(np.pi/180))))
+        Cm_le = Cm_le*(-1.0/3.0)
+        return Cl, Cm_le
