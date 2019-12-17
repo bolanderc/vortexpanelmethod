@@ -91,6 +91,7 @@ class VortexPanelMethod:
     def _calc_airfoil_coeff(self):
         n = self._num_nodes
         x, y = self._geometry.T
+        x = x/np.sqrt(1 - 100*100/(343*343))
         x_c = (x[:-1] + x[1:])/2.
         y_c = (y[:-1] + y[1:])/2.
         # Eq. 1.6.19 in text calculates the length of each panel
@@ -160,11 +161,7 @@ class VortexPanelMethod:
         airfoil_mat[n-1, n-1] = 1.0
         return airfoil_mat
 
-
-#    def _calc_panel_coeff(self):
-#        pass
-
-    def solve(self, aoa, v_mag):
+    def solve(self, aoa, v_mag, comp_corr=''):
         """Solves for the nodal vortex strengths (gamma) of the geometry.
 
         Utilizes a linear algebra solver to obtain values for the lift and
@@ -177,9 +174,10 @@ class VortexPanelMethod:
             Contains the resulting section lift and moment coefficients
 
         """
+        self.m_inf = v_mag/343
         self._b = self._calc_freestream_terms(aoa, v_mag)
         self._gamma = np.linalg.solve(self._A, self._b)
-        self._results = self._calc_forces_moments(aoa, v_mag)
+        self._results = self._calc_forces_moments(aoa, v_mag, comp_corr)
 
         return self._results
 
@@ -196,7 +194,8 @@ class VortexPanelMethod:
         freestream_terms[n-1] = 0.0
         return freestream_terms
 
-    def _calc_forces_moments(self, aoa, v_mag):
+    def _calc_forces_moments(self, aoa, v_mag, comp_corr):
+        M = self.m_inf
         gamma = self._gamma
         pan_len = self._pan_len
         x, y = self._geometry.T
@@ -213,4 +212,19 @@ class VortexPanelMethod:
             c_m_le += (pan_len[i]*(cm1*np.cos(aoa*(np.pi/180)) +
                        cm2*np.sin(aoa*(np.pi/180))))
         c_m_le = c_m_le*(-1.0/3.0)
-        return np.sum(c_l), c_m_le
+        cl = np.sum(c_l)
+        if comp_corr == 'PG':
+            correction = 1./np.sqrt(1 - M*M)
+            return cl*correction, c_m_le*correction
+        elif comp_corr == 'L':
+            D1 = np.sqrt(1. - M*M)
+            D2 = (M*M*(1. + 0.2*M*M))/(2*D1)
+            correction = 1./(D1 + D2*cl)
+            return cl*correction, c_m_le*correction
+        elif comp_corr == 'KT':
+            D1 = np.sqrt(1 - M*M)
+            D2 = (M*M)/(1. + D1)
+            correction = 1./(D1 + D2*cl/2.)
+            return cl*correction, c_m_le*correction
+        else:
+            return cl*correction, c_m_le*correction
