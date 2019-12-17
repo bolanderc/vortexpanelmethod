@@ -227,4 +227,4 @@ class VortexPanelMethod:
             correction = 1./(D1 + D2*cl/2.)
             return cl*correction, c_m_le*correction
         else:
-            return cl*correction, c_m_le*correction
+            return cl, c_m_le
