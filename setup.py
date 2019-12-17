@@ -9,5 +9,5 @@ setup(name='vortexpanelmethod',
       author='bolanderc',
       author_email='NA',
       license='??',
-      packages=['vortexpanelmethod'],
+      packages=['panelmethods'],
       zip_safe=False)
